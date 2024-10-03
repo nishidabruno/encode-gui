@@ -1,0 +1,11 @@
+[package]
+name = "file_encoder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.29.1"
+egui = "0.29.1"
+egui-notify = "0.16.0"
+encoding_rs = "0.8.34"
+rfd = "0.13"
