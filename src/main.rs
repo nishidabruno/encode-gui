@@ -37,6 +37,16 @@ struct MyApp {
     output_directory: Option<String>,
     overwrite_file: bool,
     toasts: Toasts,
+    encoder: Encoder,
+}
+
+#[derive(PartialEq, Debug, Default)]
+enum Encoder {
+    #[default]
+    UTF8,
+    ISO88591,
+    EUCKR,
+    SHIFTJIS,
 }
 
 impl eframe::App for MyApp {
@@ -87,33 +97,22 @@ impl eframe::App for MyApp {
                     ui.add_sized(vec2(226.0, 16.0), folder_path);
                 }
 
-                if !self.overwrite_file {
-                    if ui.button("Open folder...").clicked() {
-                        if !self.overwrite_file {
-                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                self.output_directory = Some(path.display().to_string());
-                            }
-                        }
+                if !self.overwrite_file && ui.button("Open folder...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                        self.output_directory = Some(path.display().to_string());
                     }
                 }
             });
 
-            #[derive(PartialEq, Debug)]
-            enum Encode {
-                ISO88591,
-                UTF8,
-                EUKKR,
-            }
-
-            let mut selected = Encode::ISO88591;
             ui.horizontal(|ui| {
                 ui.label("Encode to:");
                 egui::ComboBox::from_label("")
-                    .selected_text(format!("{:?}", selected))
+                    .selected_text(format!("{:?}", self.encoder))
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut selected, Encode::ISO88591, "ISO 8859-1");
-                        ui.selectable_value(&mut selected, Encode::EUKKR, "EUC-KR");
-                        ui.selectable_value(&mut selected, Encode::UTF8, "UTF-8");
+                        ui.selectable_value(&mut self.encoder, Encoder::ISO88591, "ISO88591");
+                        ui.selectable_value(&mut self.encoder, Encoder::EUCKR, "EUCKR");
+                        ui.selectable_value(&mut self.encoder, Encoder::SHIFTJIS, "SHIFTJIS");
+                        ui.selectable_value(&mut self.encoder, Encoder::UTF8, "UTF8");
                     });
             });
 
@@ -128,22 +127,28 @@ impl eframe::App for MyApp {
 
                 if ui.button("Convert").clicked() {
                     if let Some(path) = &self.file_path {
-                        if self.overwrite_file == true {
-                            if let Ok(_) = encode_file(path, path, true) {
-                                self.toasts.success("File encoded successfully").font(FontId::proportional(12.5));
-                            }
+                        if self.overwrite_file
+                            && encode_file(path, path, true, &self.encoder).is_ok()
+                        {
+                            self.toasts
+                                .success("File encoded successfully")
+                                .font(FontId::proportional(12.5));
                         }
                         if let Some(output_dir) = &self.output_directory {
-                                if self.overwrite_file == false {
-                                if let Ok(_) = encode_file(path, output_dir, false) {
-                                    self.toasts.success("File encoded successfully").font(FontId::proportional(12.5));
-                                }
+                            if !self.overwrite_file
+                                && encode_file(path, output_dir, false, &self.encoder).is_ok()
+                            {
+                                self.toasts
+                                    .success("File encoded successfully")
+                                    .font(FontId::proportional(12.5));
                             }
                         } else {
-                            self.toasts.info("Open the folder to be saved in").font(FontId::proportional(12.5));
+                            // self.toasts.info("Open the folder to be saved in").font(FontId::proportional(12.5));
                         }
                     } else {
-                        self.toasts.info("Open the file to be encoded").font(FontId::proportional(12.5));
+                        self.toasts
+                            .info("Open the file to be encoded")
+                            .font(FontId::proportional(12.5));
                     }
                 }
             });
@@ -153,23 +158,34 @@ impl eframe::App for MyApp {
     }
 }
 
-fn encode_file(file_path: &String, output_dir: &String, overwrite: bool) -> Result<(), Error> {
+fn encode_file(
+    file_path: &String,
+    output_dir: &String,
+    overwrite: bool,
+    encode_to: &Encoder,
+) -> Result<(), Error> {
     println!("Encode function called");
     let input_path = path::Path::new(file_path);
 
     let output_dir = path::Path::new(output_dir);
-    let output_file = if overwrite { 
+    let output_file = if overwrite {
         output_dir.to_path_buf()
-     } else { 
+    } else {
         output_dir.join("encoded_file.txt")
     };
-    println!("{:?}", output_file);
 
-    let mut input_file = File::open(&input_path)?;
-    let mut content = String::new();
-    input_file.read_to_string(&mut content)?;
+    let mut input_file = File::open(input_path)?;
+    let mut content = Vec::new();
+    input_file.read_to_end(&mut content)?;
 
-    let (encoded_content, _, _) = encoding_rs::ISO_8859_10.encode(&content);
+    let (content, _, _) = encoding_rs::UTF_8.decode(&content);
+
+    let (encoded_content, encoder, has_unmappable_content) = match encode_to {
+        Encoder::ISO88591 => encoding_rs::ISO_8859_10.encode(&content),
+        Encoder::EUCKR => encoding_rs::EUC_KR.encode(&content),
+        Encoder::SHIFTJIS => encoding_rs::SHIFT_JIS.encode(&content),
+        _ => encoding_rs::UTF_8.encode(&content),
+    };
 
     let mut output_file = File::create(&output_file)?;
     output_file.write_all(&encoded_content)?;
